@@ -7,16 +7,28 @@
 
 import type { PaletteItem } from "./discovery.ts";
 
+/**
+ * The canonical slash-invocation form for an item. Skills need the
+ * `skill:` prefix (pi only expands `/skill:<name>`); prompts and commands
+ * use a bare `/<name>`.
+ */
+export function invocationPrefix(item: PaletteItem): string {
+  return item.kind === "skill" ? "/skill:" : "/";
+}
+
 /** One-line label suitable for the TUI select dialog. */
 export function selectLabel(item: PaletteItem): string {
   const tag = item.kind === "prompt" ? "cmd" : item.kind;
   const desc = item.description ? ` — ${item.description}` : "";
-  return `/${item.name}  [${tag}]${desc}`;
+  return `${invocationPrefix(item)}${item.name}  [${tag}]${desc}`;
 }
 
 /**
  * Compact LIST view — one line per item.
  * Caps output length to keep the message digestible in the TUI.
+ *
+ * Each line shows the canonical invocation form (`/<name>` or `/skill:<name>`)
+ * so users can copy-paste the line directly into pi and have it expand.
  */
 export function formatList(items: PaletteItem[], maxItems = 200): string {
   if (items.length === 0) return "No commands found.";
@@ -25,7 +37,7 @@ export function formatList(items: PaletteItem[], maxItems = 200): string {
     const tag = item.kind === "prompt" ? "cmd" : item.kind;
     const desc = item.description ? ` — ${item.description}` : "";
     const num = String(i + 1).padStart(3, " ");
-    return `${num}. [${tag}] /${item.name}${desc}`;
+    return `${num}. [${tag}] ${invocationPrefix(item)}${item.name}${desc}`;
   });
   const truncated =
     items.length > maxItems ? `\n... (${items.length - maxItems} more, refine query)` : "";
@@ -39,7 +51,8 @@ export function formatList(items: PaletteItem[], maxItems = 200): string {
  */
 export function formatRead(item: PaletteItem, maxBody = 2000): string {
   const lines: string[] = [];
-  lines.push(`/${item.name}`);
+  // Canonical invocation form so users can copy-paste and have it expand.
+  lines.push(`${invocationPrefix(item)}${item.name}`);
   if (item.description) lines.push(`Description: ${item.description}`);
   lines.push(`Kind: ${item.kind}`);
   if (item.argumentHint) lines.push(`Arguments: ${item.argumentHint}`);

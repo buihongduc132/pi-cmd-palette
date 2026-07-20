@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { formatList, formatRead, formatHelp, selectLabel } from "./format.ts";
+import {
+  formatList,
+  formatRead,
+  formatHelp,
+  selectLabel,
+  invocationPrefix,
+} from "./format.ts";
 import type { PaletteItem } from "./discovery.ts";
 
 function mk(
@@ -16,7 +22,7 @@ function mk(
 }
 
 describe("selectLabel", () => {
-  it("renders kind tag, name, and description", () => {
+  it("renders kind tag, name, and description for prompt", () => {
     const label = selectLabel(
       mk({ name: "deploy", description: "Deploy", kind: "prompt" }),
     );
@@ -26,6 +32,30 @@ describe("selectLabel", () => {
   it("renders skill tag correctly", () => {
     const label = selectLabel(mk({ name: "x", kind: "skill" }));
     expect(label).toContain("[skill]");
+  });
+
+  it("uses /skill: prefix for skill kind (canonical invocation form)", () => {
+    const label = selectLabel(mk({ name: "audit", kind: "skill" }));
+    expect(label.startsWith("/skill:audit")).toBe(true);
+  });
+
+  it("uses bare / prefix for prompt kind", () => {
+    const label = selectLabel(mk({ name: "deploy", kind: "prompt" }));
+    expect(label.startsWith("/deploy")).toBe(true);
+  });
+});
+
+describe("invocationPrefix", () => {
+  it("returns /skill: for skill kind", () => {
+    expect(invocationPrefix(mk({ kind: "skill" }))).toBe("/skill:");
+  });
+
+  it("returns / for prompt kind", () => {
+    expect(invocationPrefix(mk({ kind: "prompt" }))).toBe("/");
+  });
+
+  it("returns / for command kind", () => {
+    expect(invocationPrefix(mk({ kind: "command" }))).toBe("/");
   });
 });
 
@@ -45,6 +75,16 @@ describe("formatList", () => {
     expect(out).toContain("alpha");
     expect(out).toContain("/b");
     expect(out).toContain("beta");
+  });
+
+  it("uses /skill: prefix for skill-kind items in list", () => {
+    const items = [
+      mk({ name: "audit", description: "audit skill", kind: "skill" }),
+      mk({ name: "deploy", description: "deploy prompt", kind: "prompt" }),
+    ];
+    const out = formatList(items);
+    expect(out).toContain("/skill:audit");
+    expect(out).toContain("/deploy");
   });
 
   it("truncates after maxItems", () => {

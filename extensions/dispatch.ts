@@ -184,7 +184,7 @@ export async function dispatch(
     }
     const item = resolveItemForRun(items, normalizeName(rawName));
     if (!item) {
-      const message = `No command named /${normalizeName(rawName)}`;
+      const message = `No command named ${normalizeName(rawName)}`;
       deps.ui.notify(message, "warning");
       return { kind: "notified", message, level: "warning" };
     }
@@ -204,7 +204,7 @@ export async function dispatch(
     const cleanName = normalizeName(rawName);
     const item = resolveItemForRun(items, cleanName);
     if (!item) {
-      const message = `No command named /${cleanName}`;
+      const message = `No command named ${cleanName}`;
       deps.ui.notify(message, "warning");
       return { kind: "notified", message, level: "warning" };
     }

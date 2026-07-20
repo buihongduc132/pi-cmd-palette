@@ -226,16 +226,59 @@ describe("mergeWithRuntimeCommands", () => {
       },
     ];
     const runtime = [
-      { name: "skill:audit-skill", description: "runtime twin" },
-      { name: "skill:other-skill", description: "no disk twin — kept" },
-      { name: "enforcer-status", description: "unrelated runtime cmd" },
+      { name: "skill:audit-skill", description: "runtime twin", source: "skill" as const },
+      { name: "skill:other-skill", description: "no disk twin — kept as bare skill", source: "skill" as const },
+      { name: "enforcer-status", description: "unrelated runtime cmd", source: "extension" as const },
     ];
     const merged = mergeWithRuntimeCommands(disk, runtime);
     const names = merged.map((m) => m.name).sort();
-    // skill:audit-skill is dropped (disk skill wins); skill:other-skill kept.
-    expect(names).toEqual(["audit-skill", "enforcer-status", "skill:other-skill"]);
+    // skill:audit-skill is dropped (disk skill wins); skill:other-skill is
+    // kept as the BARE name (other-skill) and tagged kind=skill so RUN
+    // injects /skill:other-skill.
+    expect(names).toEqual(["audit-skill", "enforcer-status", "other-skill"]);
     // Disk version of audit-skill wins.
     expect(merged.find((m) => m.name === "audit-skill")!.kind).toBe("skill");
+    // Runtime-only skill is tagged kind=skill, NOT command.
+    const otherSkill = merged.find((m) => m.name === "other-skill");
+    expect(otherSkill?.kind).toBe("skill");
+  });
+
+  it("tags source=skill runtime commands as kind=skill (no disk twin)", () => {
+    // Reproduces verifier v2 r4 defect 1: package-sourced skills like
+    // pi-subagents, pi-acp-agents, pi-holdpty, etc. never appear under
+    // <agentDir>/skills/ on disk but DO show up in pi.getCommands() with
+    // source="skill". These MUST be tagged kind=skill so /cmd run <bare>
+    // emits /skill:<bare> instead of /<bare> (which pi would NOT expand).
+    const runtime = [
+      { name: "skill:pi-subagents", description: "package skill", source: "skill" as const },
+      { name: "skill:gitnexus-debugging", description: "git skill", source: "skill" as const },
+      { name: "enforcer-status", description: "extension cmd", source: "extension" as const },
+    ];
+    const merged = mergeWithRuntimeCommands([], runtime);
+    const subagents = merged.find((m) => m.description === "package skill");
+    expect(subagents?.name).toBe("pi-subagents"); // bare name stored
+    expect(subagents?.kind).toBe("skill"); // tagged kind=skill
+    const gitSkill = merged.find((m) => m.description === "git skill");
+    expect(gitSkill?.name).toBe("gitnexus-debugging");
+    expect(gitSkill?.kind).toBe("skill");
+    const extCmd = merged.find((m) => m.description === "extension cmd");
+    expect(extCmd?.kind).toBe("command");
+  });
+
+  it("drops the skill:<name> runtime twin only when source matches", () => {
+    // Edge case: a runtime command literally named 'skill:foo' but with
+    // source=extension should NOT be confused with a skill. It is kept as-is.
+    const disk = [
+      { name: "foo", description: "disk skill", content: "", kind: "skill" as const, filePath: "/s" },
+    ];
+    const runtime = [
+      { name: "skill:foo", description: "real skill twin", source: "skill" as const },
+      { name: "skill:bar", description: "extension pretending", source: "extension" as const },
+    ];
+    const merged = mergeWithRuntimeCommands(disk, runtime);
+    // skill:foo is dropped (disk foo wins); skill:bar kept (not actually a skill).
+    const names = merged.map((m) => m.name).sort();
+    expect(names).toEqual(["foo", "skill:bar"]);
   });
 });
 

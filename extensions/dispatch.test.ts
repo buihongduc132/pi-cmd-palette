@@ -199,7 +199,7 @@ describe("dispatch — read", () => {
     );
     expect(outcome.kind).toBe("notified");
     const notify = ui.calls.find((c) => c.method === "notify");
-    expect(String(notify?.args[0])).toContain("No command named /nope");
+    expect(String(notify?.args[0])).toContain("No command named nope");
   });
 });
 
@@ -253,6 +253,35 @@ describe("dispatch — run", () => {
     expect((outcome as { invocation: string }).invocation).toBe(
       "/skill:audit-skill --deep",
     );
+  });
+
+  it("RUN-by-bare-name works for package-sourced skills (no disk twin)", async () => {
+    // Reproduces verifier v2 r4 defect 1: pi.getCommands() returns skills
+    // from packages (pi-subagents, gitnexus-*, pi-holdpty, ...) with
+    // source="skill" but they DON'T exist under <agentDir>/skills/ on disk.
+    // The palette must still RUN them by bare name.
+    const ui = makeFakeUi();
+    const runner = makeFakeRunner();
+    const runtimeSkillItems: PaletteItem[] = [
+      // What mergeWithRuntimeCommands produces from a source="skill" runtime
+      // command named "skill:gitnexus-debugging":
+      {
+        name: "gitnexus-debugging",
+        description: "gitnexus skill from package",
+        content: "",
+        kind: "skill",
+        filePath: "",
+      },
+    ];
+    const outcome = await dispatch(
+      "run gitnexus-debugging",
+      makeDeps(ui, runner, runtimeSkillItems),
+    );
+    expect(outcome.kind).toBe("ran");
+    expect((outcome as { invocation: string }).invocation).toBe(
+      "/skill:gitnexus-debugging",
+    );
+    expect(runner.invocations).toEqual(["/skill:gitnexus-debugging"]);
   });
 
   it("warns when no name given", async () => {
@@ -371,8 +400,10 @@ describe("dispatch — list", () => {
     );
     expect(outcome.kind).toBe("notified");
     const notify = ui.calls.find((c) => c.method === "notify");
+    // Skills appear with their canonical /skill: prefix; prompts with bare /.
     expect(String(notify?.args[0])).toContain("/deploy");
-    expect(String(notify?.args[0])).toContain("/audit-skill");
+    expect(String(notify?.args[0])).toContain("/skill:audit-skill");
+    expect(String(notify?.args[0])).toContain("/enforcer-status");
   });
 
   it("filters by query", async () => {
@@ -432,7 +463,7 @@ describe("dispatch — interactive picker (hasUI=true)", () => {
   it("picker + skill pick → re-injects /skill:<name>", async () => {
     const ui = makeFakeUi({
       inputs: ["audit", ""], // query, then empty args
-      selects: ["/audit-skill  [skill] — Audit stuff"],
+      selects: ["/skill:audit-skill  [skill] — Audit stuff"],
     });
     const runner = makeFakeRunner();
     const outcome = await dispatch("", makeDeps(ui, runner, sampleItems()));

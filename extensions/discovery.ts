@@ -202,24 +202,39 @@ export function discoverSkills(skillsDir: string): PaletteItem[] {
 export interface RuntimeCommand {
   name: string;
   description?: string;
+  /**
+   * pi-reported source: `"extension"` (registered via pi.registerCommand),
+   * `"prompt"` (markdown template), or `"skill"` (a skill surfaced as
+   * `skill:<name>`). Used to tag the merged item's `kind` correctly so
+   * the dispatcher knows to inject `/skill:<name>` instead of `/<name>`.
+   * See SlashCommandInfo in @mariozechner/pi-coding-agent.
+   */
+  source?: "extension" | "prompt" | "skill";
 }
 
 /**
  * Merge disk-discovered items with pi runtime commands, dedup by name.
  *
- * Special-case: pi registers every skill as a runtime command named
- * `skill:<name>` (agent-session.js:1699). Disk-discovered skills use the
- * bare name (e.g. `audit-skill`). To avoid duplicate palette entries, we
- * drop the `skill:<name>` runtime twin when a disk skill of the same bare
- * name exists — the disk entry wins because it carries inline content for
- * READ and is the canonical surface.
+ * Special-cases:
+ *   - pi registers every skill as a runtime command named `skill:<name>`
+ *     with `source: "skill"` (agent-session.js). Disk-discovered skills
+ *     use the bare name (e.g. `audit-skill`). To avoid duplicate palette
+ *     entries, we drop the `skill:<name>` runtime twin when a disk skill
+ *     of the same bare name exists — the disk entry wins because it
+ *     carries inline content for READ.
+ *   - When a runtime command's `source === "skill"` (no disk twin — typical
+ *     for package-sourced skills), we tag the merged item `kind: "skill"`
+ *     so the dispatcher emits `/skill:<name>` instead of `/<name>`.
+ *     Without this, RUN-by-bare-name fails for the majority of real-world
+ *     skills (pi-subagents, pi-acp-agents, pi-holdpty, etc.) because pi
+ *     only expands skills when the text starts with `/skill:`.
  */
 export function mergeWithRuntimeCommands(
   diskItems: PaletteItem[],
   runtime: RuntimeCommand[],
 ): PaletteItem[] {
   const seen = new Set(diskItems.map((i) => i.name));
-  // Also track skill names so we can drop their `skill:<name>` runtime twins.
+  // Track skill bare names so we can drop their `skill:<name>` runtime twins.
   const skillBareNames = new Set(
     diskItems.filter((i) => i.kind === "skill").map((i) => i.name.toLowerCase()),
   );
@@ -227,18 +242,43 @@ export function mergeWithRuntimeCommands(
   const merged = [...diskItems];
   for (const cmd of runtime) {
     if (seen.has(cmd.name)) continue;
+
     // Drop `skill:<name>` runtime twin if disk skill of the same bare name exists.
+    // Only drop if the runtime command is actually a skill (source=skill);
+    // an extension command coincidentally named `skill:bar` is NOT a twin.
+    const lowerName = cmd.name.toLowerCase();
     if (
-      cmd.name.toLowerCase().startsWith("skill:") &&
-      skillBareNames.has(cmd.name.slice("skill:".length).toLowerCase())
+      cmd.source === "skill" &&
+      lowerName.startsWith("skill:") &&
+      skillBareNames.has(lowerName.slice("skill:".length))
     ) {
       continue;
     }
+
+    // Tag source=skill runtime commands as kind=skill so the dispatcher
+    // emits `/skill:<name>`. These are skills from packages/git sources
+    // that don't appear under <agentDir>/skills/ on disk.
+    //
+    // IMPORTANT: detect "is this a skill?" from the SOURCE field, NOT from
+    // the name prefix. An extension could legitimately register a command
+    // named `skill:bar` with source=extension — that is NOT a skill and
+    // must keep its full name and command kind.
+    const isRuntimeSkill = cmd.source === "skill";
+    const kind: PaletteKind = isRuntimeSkill ? "skill" : "command";
+
+    // For runtime skills pi gives us the name already in `skill:<bare>` form.
+    // Strip that prefix so we store the BARE name (matches disk-skill shape)
+    // and buildInvocation can re-add it consistently.
+    const itemName =
+      isRuntimeSkill && lowerName.startsWith("skill:")
+        ? cmd.name.slice("skill:".length)
+        : cmd.name;
+
     merged.push({
-      name: cmd.name,
+      name: itemName,
       description: cmd.description ?? "",
       content: "",
-      kind: "command",
+      kind,
       filePath: "",
     });
   }
@@ -250,7 +290,8 @@ export function formatListItem(item: PaletteItem, index: number): string {
   const kindTag = item.kind === "prompt" ? "cmd" : item.kind;
   const hint = item.argumentHint ? `  ${item.argumentHint}` : "";
   const desc = item.description ? ` — ${item.description}` : "";
-  return `${String(index + 1).padStart(3, " ")}. [${kindTag}] /${item.name}${hint}${desc}`;
+  const prefix = item.kind === "skill" ? "/skill:" : "/";
+  return `${String(index + 1).padStart(3, " ")}. [${kindTag}] ${prefix}${item.name}${hint}${desc}`;
 }
 
 /** Sort items alphabetically (stable, case-insensitive). */

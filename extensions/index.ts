@@ -61,11 +61,20 @@ function gatherItems(
   // 3. Merge with runtime-registered commands (extension commands).
   //    pi.getCommands() returns every slash command including builtin ones;
   //    we keep ones that didn't already come from disk.
-  let runtimeNames: { name: string; description?: string }[] = [];
+  //    The `source` field ("extension" | "prompt" | "skill") is carried
+  //    through so mergeWithRuntimeCommands can tag source=skill commands
+  //    with kind=skill — required for /cmd run <bare-skill> to work on
+  //    package-sourced skills that don't exist on disk.
+  let runtimeNames: {
+    name: string;
+    description?: string;
+    source?: "extension" | "prompt" | "skill";
+  }[] = [];
   try {
     runtimeNames = pi.getCommands().map((c) => ({
       name: c.name,
       description: c.description,
+      source: c.source,
     }));
   } catch {
     runtimeNames = [];
