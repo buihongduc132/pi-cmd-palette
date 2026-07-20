@@ -49,6 +49,13 @@ describe("parseFrontmatter", () => {
     expect(body).toBe(raw);
   });
 
+  it("tolerates trailing whitespace after the --- separators", () => {
+    const raw = "--- \nname: x \n--- \n\nbody";
+    const { frontmatter, body } = parseFrontmatter(raw);
+    expect(frontmatter.name).toBe("x");
+    expect(body.trim()).toBe("body");
+  });
+
   it("skips blank lines and comments inside frontmatter", () => {
     const raw = `---\n# a comment\nname: x\n\n---\nbody`;
     const { frontmatter } = parseFrontmatter(raw);

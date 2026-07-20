@@ -14,6 +14,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   discoverPrompts,
@@ -26,21 +27,20 @@ import { fuzzyRankMulti, type MultiField } from "./fuzzy.ts";
 import { formatHelp, formatList, formatRead, selectLabel } from "./format.ts";
 
 /** Resolve the agent config dir (where prompts/ and skills/ live). */
-function agentDir(ctx: { cwd: string }): string {
+function agentDir(): string {
   // pi exposes the agent dir via PI_CODING_AGENT_DIR env (set per-stage by
   // the deploy pipeline). Fall back to the canonical ~/.pi/agent.
   const env = process.env.PI_CODING_AGENT_DIR;
   if (env) return env;
-  const home = process.env.HOME || process.env.USERPROFILE || "/tmp";
-  return join(home, ".pi", "agent");
+  return join(homedir(), ".pi", "agent");
 }
 
 /** Discover every palette entry available in this session. */
 function gatherItems(
   pi: ExtensionAPI,
-  ctx: { cwd: string },
+  ctx: { cwd?: string },
 ): PaletteItem[] {
-  const dir = agentDir(ctx);
+  const dir = agentDir();
 
   // 1. Disk-discovered prompts + skills.
   const fromDisk = [
@@ -49,8 +49,10 @@ function gatherItems(
   ];
 
   // 2. Project-local prompts (cwd/.pi/prompts) — mirrors pi's own loader.
-  const projectPrompts = discoverPrompts(join(ctx.cwd, ".pi", "prompts"));
-  const projectSkills = discoverSkills(join(ctx.cwd, ".pi", "skills"));
+  //    Defensively default to process.cwd() if ctx.cwd is missing.
+  const cwd = ctx?.cwd || process.cwd();
+  const projectPrompts = discoverPrompts(join(cwd, ".pi", "prompts"));
+  const projectSkills = discoverSkills(join(cwd, ".pi", "skills"));
 
   // 3. Merge with runtime-registered commands (extension commands).
   //    pi.getCommands() returns every slash command including builtin ones;
@@ -222,7 +224,9 @@ export default function (pi: ExtensionAPI) {
         `Arguments for /${picked.name} (optional):`,
         picked.argumentHint ?? "",
       );
-      await runItem(pi, ctx, picked, extraArgs ?? "");
+      // Respect cancellation — undefined means the user escaped.
+      if (extraArgs === undefined) return;
+      await runItem(pi, ctx, picked, extraArgs);
     },
   });
 }

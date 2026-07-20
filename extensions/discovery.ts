@@ -40,7 +40,9 @@ export function parseFrontmatter(raw: string): {
 } {
   const fm: Record<string, string> = {};
   // Match opening --- ... closing --- on the very first lines.
-  const match = raw.match(/^\s*---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  // Allow optional trailing whitespace after each `---` separator (common
+  // in hand-edited markdown files).
+  const match = raw.match(/^\s*---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n?([\s\S]*)$/);
   if (!match) {
     return { frontmatter: fm, body: raw };
   }
@@ -124,13 +126,26 @@ function isDir(p: string): boolean {
 }
 
 /**
+ * Safe directory reader. Returns [] on any error (unreadable dir, race
+ * condition where the dir is deleted between the isDir check and read,
+ * permission issues, etc.) so the palette never crashes mid-discovery.
+ */
+function safeReaddir(p: string): string[] {
+  try {
+    return readdirSync(p);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Scan a prompts directory for `*.md` files (non-recursive at top level —
  * matches pi's own loader).
  */
 export function discoverPrompts(promptsDir: string): PaletteItem[] {
   if (!isDir(promptsDir)) return [];
   const items: PaletteItem[] = [];
-  for (const entry of readdirSync(promptsDir)) {
+  for (const entry of safeReaddir(promptsDir)) {
     const fp = join(promptsDir, entry);
     if (!isDir(fp) && entry.endsWith(".md")) {
       const item = promptFileToItem(fp);
@@ -149,7 +164,7 @@ export function discoverPrompts(promptsDir: string): PaletteItem[] {
 export function discoverSkills(skillsDir: string): PaletteItem[] {
   if (!isDir(skillsDir)) return [];
   const items: PaletteItem[] = [];
-  for (const entry of readdirSync(skillsDir)) {
+  for (const entry of safeReaddir(skillsDir)) {
     const fp = join(skillsDir, entry);
     if (isDir(fp)) {
       // Direct child with SKILL.md?
@@ -159,7 +174,7 @@ export function discoverSkills(skillsDir: string): PaletteItem[] {
         continue;
       }
       // Otherwise scan one level deeper.
-      for (const inner of readdirSync(fp)) {
+      for (const inner of safeReaddir(fp)) {
         const innerFp = join(fp, inner);
         if (isDir(innerFp)) {
           const nested = skillDirToItem(innerFp);
