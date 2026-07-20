@@ -13,6 +13,8 @@ import {
   sortByName,
 } from "../extensions/discovery.ts";
 import { formatList, formatHelp } from "../extensions/format.ts";
+import { dispatch } from "../extensions/dispatch.ts";
+import type { PaletteItem } from "../extensions/discovery.ts";
 
 let failures = 0;
 function assert(cond: boolean, msg: string): void {
@@ -54,6 +56,29 @@ try {
   console.log("ok  - extension entry point imports cleanly");
 } catch (err) {
   console.error("FAIL: extension entry point import:", err);
+  failures++;
+}
+
+// dispatch end-to-end (RUN re-injection path)
+try {
+  const items: PaletteItem[] = [
+    { name: "smoke-deploy", description: "x", content: "y", kind: "prompt", filePath: "/z" },
+  ];
+  const runCalls: string[] = [];
+  const outcome = await dispatch("run smoke-deploy prod", {
+    hasUI: false,
+    getItems: () => items,
+    ui: {
+      notify: () => {},
+      input: async () => undefined,
+      select: async () => undefined,
+    },
+    runner: { run: (inv) => { runCalls.push(inv); } },
+  });
+  assert(outcome.kind === "ran", "dispatch(run) outcome is 'ran'");
+  assert(runCalls[0] === "/smoke-deploy prod", "dispatch(run) re-injects /<name> <args>");
+} catch (err) {
+  console.error("FAIL: dispatch(run) end-to-end:", err);
   failures++;
 }
 

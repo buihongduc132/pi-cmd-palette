@@ -95,11 +95,18 @@ extensions/
 ├── fuzzy.ts          # pure fuzzy-search helpers
 ├── discovery.ts      # pure disk + runtime discovery
 ├── format.ts         # pure output formatting
-├── index.ts          # pi extension entry point (/cmd command)
-└── *.test.ts         # co-located vitest tests
+├── dispatch.ts       # pure subaction dispatcher (the feature logic)
+├── index.ts          # pi extension entry point — thin wrapper around dispatch
+└── *.test.ts         # co-located vitest tests (incl. dispatch.test.ts)
 skills/pi-cmd-palette/SKILL.md   # pi skill descriptor
 scripts/smoke-test.ts            # load + sanity checks
 ```
+
+The dispatch logic (subaction routing, picker flow, RUN re-injection) lives
+in `dispatch.ts` and is fully unit-tested via `dispatch.test.ts` with fake
+UI/runner deps. `index.ts` is a thin wiring layer that builds real deps
+from the ExtensionAPI — per pi-package convention it's excluded from
+coverage (untestable without a pi runtime); see `dispatch.ts` instead.
 
 ## License
 

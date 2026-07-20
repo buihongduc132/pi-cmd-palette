@@ -21,6 +21,19 @@ project adheres to [Semantic Versioning](https://semver.org/).
   prompt/skill/command pipeline. No reimplementation.
 - Interactive picker (`ctx.ui.input` + `ctx.ui.select`) with optional
   argument prompt before RUN.
-- Pure-helper test suite (fuzzy, discovery, format) with 85%+ coverage
-  thresholds.
+- Dispatch logic factored into a pure, fully-tested `dispatch.ts` module
+  (subaction routing, picker flow, RUN re-injection) — index.ts is a thin
+  wiring layer per pi-package convention.
+- Pure-helper test suite (fuzzy, discovery, format, dispatch) with 85%+
+  coverage thresholds. dispatch.ts alone has 29 tests covering every
+  subaction branch and the interactive picker flow (run, read, cancel,
+  no-UI fallback).
 - CI workflow (typecheck + coverage + smoke-test + `npm pack --dry-run`).
+
+### Security / Robustness
+- `safeReaddir()` wraps every `readdirSync` to prevent palette crashes on
+  unreadable directories, permission errors, or race conditions.
+- `parseFrontmatter()` tolerates trailing whitespace after `---` separators.
+- `agentDir()` uses `node:os homedir()` for cross-platform home resolution.
+- Interactive picker respects Esc/cancel on every prompt (query, select,
+  args) instead of running with empty args.

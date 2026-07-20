@@ -5,6 +5,11 @@
  * over every slash command, prompt, and skill in the current pi session,
  * with fuzzy search over name / description / body content.
  *
+ * The actual dispatch logic lives in `./dispatch.ts` (pure, fully tested).
+ * This file is a thin wrapper that wires the ExtensionAPI to the pure
+ * dispatcher. Per pi-package convention, index.ts is excluded from coverage
+ * (it's untestable without a pi runtime) — see dispatch.test.ts instead.
+ *
  * Design (per pi-tools-vs-cmd skill):
  *   - LIST/READ/RUN is a human-facing, interactive flow → COMMAND, not a tool.
  *   - Single command multiplexed by subaction (`list` | `read` | `run` | none).
@@ -23,8 +28,7 @@ import {
   sortByName,
   type PaletteItem,
 } from "./discovery.ts";
-import { fuzzyRankMulti, type MultiField } from "./fuzzy.ts";
-import { formatHelp, formatList, formatRead, selectLabel } from "./format.ts";
+import { dispatch, type DispatchDeps, type DispatchUi, type DispatchRunner } from "./dispatch.ts";
 
 /** Resolve the agent config dir (where prompts/ and skills/ live). */
 function agentDir(): string {
@@ -74,26 +78,24 @@ function gatherItems(
   return sortByName(merged);
 }
 
-/** Fuzzy search over name + description + content. */
-function search(items: PaletteItem[], query: string): PaletteItem[] {
-  if (!query.trim()) return items;
-  const fields: MultiField<PaletteItem>[] = [
-    { text: (i) => i.name, weight: 3 },
-    { text: (i) => i.description, weight: 2 },
-    { text: (i) => i.content, weight: 1 },
-  ];
-  return fuzzyRankMulti(query, items, fields).map((s) => s.item);
+/** Build a DispatchUi from a pi ExtensionCommandContext-like ui object. */
+function makeUi(ui: {
+  notify(message: string, level?: "info" | "warning" | "error"): void;
+  input(title: string, placeholder?: string): Promise<string | undefined>;
+  select(title: string, options: string[]): Promise<string | undefined>;
+}): DispatchUi {
+  return {
+    notify: (m, lvl) => ui.notify(m, lvl),
+    input: (t, p) => ui.input(t, p),
+    select: (t, o) => ui.select(t, o),
+  };
 }
 
-/** Find an exact item by name (case-insensitive). */
-function findExact(items: PaletteItem[], name: string): PaletteItem | undefined {
-  const lower = name.toLowerCase().replace(/^\//, "");
-  return items.find((i) => i.name.toLowerCase() === lower);
-}
-
-/** Strip a leading slash from a token, if present. */
-function normalizeName(token: string): string {
-  return token.replace(/^\//, "");
+/** Build a DispatchRunner from pi's sendUserMessage. */
+function makeRunner(sendUserMessage: (content: string) => void): DispatchRunner {
+  return {
+    run: (invocation) => sendUserMessage(invocation),
+  };
 }
 
 export default function (pi: ExtensionAPI) {
@@ -109,145 +111,13 @@ export default function (pi: ExtensionAPI) {
       return hits.length > 0 ? hits : null;
     },
     handler: async (args, ctx) => {
-      const trimmed = args.trim();
-      const tokens = trimmed.split(/\s+/).filter(Boolean);
-      const subaction = tokens[0]?.toLowerCase();
-
-      const items = gatherItems(pi, ctx);
-
-      // /cmd help
-      if (subaction === "help" || subaction === "?") {
-        ctx.ui.notify(formatHelp(), "info");
-        return;
-      }
-
-      // /cmd read <name>
-      if (subaction === "read") {
-        const name = tokens[1];
-        if (!name) {
-          ctx.ui.notify("Usage: /cmd read <name>", "warning");
-          return;
-        }
-        const item = findExact(items, normalizeName(name));
-        if (!item) {
-          ctx.ui.notify(`No command named /${normalizeName(name)}`, "warning");
-          return;
-        }
-        ctx.ui.notify(formatRead(item), "info");
-        return;
-      }
-
-      // /cmd run <name> [args...]
-      if (subaction === "run") {
-        const name = tokens[1];
-        if (!name) {
-          ctx.ui.notify("Usage: /cmd run <name> [args]", "warning");
-          return;
-        }
-        const cleanName = normalizeName(name);
-        const item = findExact(items, cleanName);
-        if (!item) {
-          ctx.ui.notify(`No command named /${cleanName}`, "warning");
-          return;
-        }
-        const rest = tokens.slice(2).join(" ");
-        await runItem(pi, ctx, item, rest);
-        return;
-      }
-
-      // /cmd list [query...]
-      if (subaction === "list") {
-        const query = tokens.slice(1).join(" ");
-        const results = search(items, query);
-        ctx.ui.notify(
-          `${formatList(results)}\n\n${results.length} match(es)${query ? ` for "${query}"` : ""}`,
-          "info",
-        );
-        return;
-      }
-
-      // /cmd <query>  (no subaction → fuzzy list)
-      if (trimmed) {
-        const results = search(items, trimmed);
-        if (results.length === 0) {
-          ctx.ui.notify(`No matches for "${trimmed}".`, "info");
-          return;
-        }
-        ctx.ui.notify(
-          `${formatList(results)}\n\n${results.length} match(es) for "${trimmed}"`,
-          "info",
-        );
-        return;
-      }
-
-      // /cmd  (no args → interactive picker)
-      if (!ctx.hasUI) {
-        // Non-interactive fallback: print full list.
-        ctx.ui.notify(formatList(items), "info");
-        return;
-      }
-
-      // Interactive: ask for a query first, then pick from matches.
-      const query = await ctx.ui.input(
-        "Command palette — type to fuzzy search (name/desc/content):",
-        "<filter or enter for all>",
-      );
-      if (query === undefined) {
-        return; // user cancelled
-      }
-      const results = search(items, query);
-      if (results.length === 0) {
-        ctx.ui.notify(
-          `No matches${query ? ` for "${query}"` : ""}.`,
-          "info",
-        );
-        return;
-      }
-      const labels = results.map(selectLabel);
-      const choice = await ctx.ui.select(
-        `Command palette (${results.length})`,
-        labels,
-      );
-      if (choice === undefined) return;
-      const idx = labels.indexOf(choice);
-      if (idx < 0) return;
-      const picked = results[idx];
-
-      // Runtime extension commands (no inline content) → READ.
-      // Everything else → RUN.
-      if (picked.kind === "command" && !picked.content) {
-        ctx.ui.notify(formatRead(picked), "info");
-        return;
-      }
-      // For prompt/skill items, ask whether to pass arguments.
-      const extraArgs = await ctx.ui.input(
-        `Arguments for /${picked.name} (optional):`,
-        picked.argumentHint ?? "",
-      );
-      // Respect cancellation — undefined means the user escaped.
-      if (extraArgs === undefined) return;
-      await runItem(pi, ctx, picked, extraArgs);
+      const deps: DispatchDeps = {
+        hasUI: ctx.hasUI,
+        getItems: () => gatherItems(pi, ctx),
+        ui: makeUi(ctx.ui),
+        runner: makeRunner((invocation) => pi.sendUserMessage(invocation)),
+      };
+      await dispatch(args, deps);
     },
   });
-}
-
-/**
- * RUN an item by re-injecting it as a user message in the exact form a
- * human would type: `/<name> <args>`. This deliberately routes through
- * pi's normal expansion pipeline so EVERY functionality of the underlying
- * command — argument substitution ($1, $@, ${@:N}), frontmatter, skill
- * loading, MCP attachment, etc. — is preserved. No reimplementation.
- */
-async function runItem(
-  pi: ExtensionAPI,
-  _ctx: unknown,
-  item: PaletteItem,
-  args: string,
-): Promise<void> {
-  const invocation = args.trim()
-    ? `/${item.name} ${args.trim()}`
-    : `/${item.name}`;
-  // sendUserMessage is synchronous on ExtensionAPI; pi expands the slash
-  // command through its prompt/skill/command resolver on the next turn.
-  pi.sendUserMessage(invocation);
 }
