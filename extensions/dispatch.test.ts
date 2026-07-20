@@ -4,6 +4,8 @@ import {
   findItemByName,
   normalizeName,
   searchItems,
+  buildInvocation,
+  resolveItemForRun,
   type DispatchDeps,
   type DispatchUi,
   type DispatchRunner,
@@ -202,7 +204,7 @@ describe("dispatch — read", () => {
 });
 
 describe("dispatch — run", () => {
-  it("re-injects /<name> with no args", async () => {
+  it("re-injects /<name> with no args (prompt)", async () => {
     const ui = makeFakeUi();
     const runner = makeFakeRunner();
     const outcome = await dispatch(
@@ -214,7 +216,7 @@ describe("dispatch — run", () => {
     expect(runner.invocations).toEqual(["/deploy"]);
   });
 
-  it("re-injects /<name> <args> with args", async () => {
+  it("re-injects /<name> <args> with args (prompt)", async () => {
     const ui = makeFakeUi();
     const runner = makeFakeRunner();
     const outcome = await dispatch(
@@ -226,6 +228,31 @@ describe("dispatch — run", () => {
       "/deploy prod --force",
     );
     expect(runner.invocations).toEqual(["/deploy prod --force"]);
+  });
+
+  it("re-injects /skill:<name> for a skill (CRITICAL — pi requires the skill: prefix)", async () => {
+    const ui = makeFakeUi();
+    const runner = makeFakeRunner();
+    const outcome = await dispatch(
+      "run audit-skill",
+      makeDeps(ui, runner, sampleItems()),
+    );
+    expect(outcome.kind).toBe("ran");
+    expect((outcome as { invocation: string }).invocation).toBe("/skill:audit-skill");
+    expect(runner.invocations).toEqual(["/skill:audit-skill"]);
+  });
+
+  it("re-injects /skill:<name> <args> for a skill with args", async () => {
+    const ui = makeFakeUi();
+    const runner = makeFakeRunner();
+    const outcome = await dispatch(
+      "run audit-skill --deep",
+      makeDeps(ui, runner, sampleItems()),
+    );
+    expect(outcome.kind).toBe("ran");
+    expect((outcome as { invocation: string }).invocation).toBe(
+      "/skill:audit-skill --deep",
+    );
   });
 
   it("warns when no name given", async () => {
@@ -245,6 +272,92 @@ describe("dispatch — run", () => {
     expect(outcome.kind).toBe("notified");
     const notify = ui.calls.find((c) => c.method === "notify");
     expect(String(notify?.args[1])).toBe("warning");
+  });
+});
+
+describe("buildInvocation", () => {
+  it("uses bare /<name> for prompt kind", () => {
+    const item: PaletteItem = {
+      name: "deploy",
+      description: "",
+      content: "",
+      kind: "prompt",
+      filePath: "",
+    };
+    expect(buildInvocation(item, "")).toBe("/deploy");
+    expect(buildInvocation(item, "prod")).toBe("/deploy prod");
+  });
+
+  it("uses /skill:<name> for skill kind", () => {
+    const item: PaletteItem = {
+      name: "audit",
+      description: "",
+      content: "",
+      kind: "skill",
+      filePath: "",
+    };
+    expect(buildInvocation(item, "")).toBe("/skill:audit");
+    expect(buildInvocation(item, "--deep")).toBe("/skill:audit --deep");
+  });
+
+  it("uses bare /<name> for extension command kind", () => {
+    const item: PaletteItem = {
+      name: "enforcer-status",
+      description: "",
+      content: "",
+      kind: "command",
+      filePath: "",
+    };
+    expect(buildInvocation(item, "")).toBe("/enforcer-status");
+  });
+
+  it("trims whitespace from args", () => {
+    const item: PaletteItem = {
+      name: "x",
+      description: "",
+      content: "",
+      kind: "prompt",
+      filePath: "",
+    };
+    expect(buildInvocation(item, "  prod  ")).toBe("/x prod");
+  });
+});
+
+describe("resolveItemForRun", () => {
+  const items: PaletteItem[] = [
+    { name: "deploy", description: "", content: "", kind: "prompt", filePath: "" },
+    { name: "audit", description: "", content: "", kind: "skill", filePath: "" },
+    { name: "enforcer", description: "", content: "", kind: "command", filePath: "" },
+    // Runtime twin of the skill:
+    { name: "skill:audit", description: "", content: "", kind: "command", filePath: "" },
+  ];
+
+  it("resolves bare name to prompt", () => {
+    expect(resolveItemForRun(items, "deploy")?.name).toBe("deploy");
+  });
+
+  it("resolves bare name to skill (prefers disk over runtime twin)", () => {
+    const hit = resolveItemForRun(items, "audit");
+    expect(hit?.name).toBe("audit");
+    expect(hit?.kind).toBe("skill");
+  });
+
+  it("resolves `skill:<name>` form to the skill", () => {
+    const hit = resolveItemForRun(items, "skill:audit");
+    expect(hit?.name).toBe("audit");
+    expect(hit?.kind).toBe("skill");
+  });
+
+  it("resolves extension command name", () => {
+    expect(resolveItemForRun(items, "enforcer")?.name).toBe("enforcer");
+  });
+
+  it("returns undefined for unknown", () => {
+    expect(resolveItemForRun(items, "nope")).toBeUndefined();
+  });
+
+  it("tolerates leading slash in the query", () => {
+    expect(resolveItemForRun(items, "/deploy")?.name).toBe("deploy");
   });
 });
 
@@ -314,6 +427,19 @@ describe("dispatch — interactive picker (hasUI=true)", () => {
     expect(outcome.kind).toBe("ran");
     expect((outcome as { invocation: string }).invocation).toBe("/deploy prod");
     expect(runner.invocations).toEqual(["/deploy prod"]);
+  });
+
+  it("picker + skill pick → re-injects /skill:<name>", async () => {
+    const ui = makeFakeUi({
+      inputs: ["audit", ""], // query, then empty args
+      selects: ["/audit-skill  [skill] — Audit stuff"],
+    });
+    const runner = makeFakeRunner();
+    const outcome = await dispatch("", makeDeps(ui, runner, sampleItems()));
+
+    expect(outcome.kind).toBe("ran");
+    expect((outcome as { invocation: string }).invocation).toBe("/skill:audit-skill");
+    expect(runner.invocations).toEqual(["/skill:audit-skill"]);
   });
 
   it("picks a runtime command (no content) → READ", async () => {

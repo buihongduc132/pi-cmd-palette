@@ -204,15 +204,36 @@ export interface RuntimeCommand {
   description?: string;
 }
 
-/** Merge disk-discovered items with pi runtime commands, dedup by name. */
+/**
+ * Merge disk-discovered items with pi runtime commands, dedup by name.
+ *
+ * Special-case: pi registers every skill as a runtime command named
+ * `skill:<name>` (agent-session.js:1699). Disk-discovered skills use the
+ * bare name (e.g. `audit-skill`). To avoid duplicate palette entries, we
+ * drop the `skill:<name>` runtime twin when a disk skill of the same bare
+ * name exists — the disk entry wins because it carries inline content for
+ * READ and is the canonical surface.
+ */
 export function mergeWithRuntimeCommands(
   diskItems: PaletteItem[],
   runtime: RuntimeCommand[],
 ): PaletteItem[] {
   const seen = new Set(diskItems.map((i) => i.name));
+  // Also track skill names so we can drop their `skill:<name>` runtime twins.
+  const skillBareNames = new Set(
+    diskItems.filter((i) => i.kind === "skill").map((i) => i.name.toLowerCase()),
+  );
+
   const merged = [...diskItems];
   for (const cmd of runtime) {
     if (seen.has(cmd.name)) continue;
+    // Drop `skill:<name>` runtime twin if disk skill of the same bare name exists.
+    if (
+      cmd.name.toLowerCase().startsWith("skill:") &&
+      skillBareNames.has(cmd.name.slice("skill:".length).toLowerCase())
+    ) {
+      continue;
+    }
     merged.push({
       name: cmd.name,
       description: cmd.description ?? "",

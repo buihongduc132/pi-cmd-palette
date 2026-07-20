@@ -214,6 +214,29 @@ describe("mergeWithRuntimeCommands", () => {
       "from disk",
     );
   });
+
+  it("drops the skill:<name> runtime twin when a disk skill exists", () => {
+    const disk = [
+      {
+        name: "audit-skill",
+        description: "from disk",
+        content: "body",
+        kind: "skill" as const,
+        filePath: "/s/audit-skill/SKILL.md",
+      },
+    ];
+    const runtime = [
+      { name: "skill:audit-skill", description: "runtime twin" },
+      { name: "skill:other-skill", description: "no disk twin — kept" },
+      { name: "enforcer-status", description: "unrelated runtime cmd" },
+    ];
+    const merged = mergeWithRuntimeCommands(disk, runtime);
+    const names = merged.map((m) => m.name).sort();
+    // skill:audit-skill is dropped (disk skill wins); skill:other-skill kept.
+    expect(names).toEqual(["audit-skill", "enforcer-status", "skill:other-skill"]);
+    // Disk version of audit-skill wins.
+    expect(merged.find((m) => m.name === "audit-skill")!.kind).toBe("skill");
+  });
 });
 
 describe("sortByName", () => {

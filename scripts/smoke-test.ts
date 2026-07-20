@@ -63,9 +63,10 @@ try {
 try {
   const items: PaletteItem[] = [
     { name: "smoke-deploy", description: "x", content: "y", kind: "prompt", filePath: "/z" },
+    { name: "smoke-skill", description: "s", content: "sb", kind: "skill", filePath: "/sk" },
   ];
   const runCalls: string[] = [];
-  const outcome = await dispatch("run smoke-deploy prod", {
+  const deps = {
     hasUI: false,
     getItems: () => items,
     ui: {
@@ -73,10 +74,14 @@ try {
       input: async () => undefined,
       select: async () => undefined,
     },
-    runner: { run: (inv) => { runCalls.push(inv); } },
-  });
-  assert(outcome.kind === "ran", "dispatch(run) outcome is 'ran'");
-  assert(runCalls[0] === "/smoke-deploy prod", "dispatch(run) re-injects /<name> <args>");
+    runner: { run: (inv: string) => { runCalls.push(inv); } },
+  };
+  const promptOutcome = await dispatch("run smoke-deploy prod", deps);
+  assert(promptOutcome.kind === "ran", "dispatch(run prompt) outcome is 'ran'");
+  assert(runCalls[0] === "/smoke-deploy prod", "dispatch(run prompt) re-injects /<name> <args>");
+  const skillOutcome = await dispatch("run smoke-skill", deps);
+  assert(skillOutcome.kind === "ran", "dispatch(run skill) outcome is 'ran'");
+  assert(runCalls[1] === "/skill:smoke-skill", "dispatch(run skill) re-injects /skill:<name> (pi requires the prefix)");
 } catch (err) {
   console.error("FAIL: dispatch(run) end-to-end:", err);
   failures++;

@@ -78,6 +78,75 @@ export function normalizeName(token: string): string {
 }
 
 /**
+ * Build the canonical pi invocation string for an item.
+ *
+ * pi has different expansion rules per kind:
+ *   - prompt-sourced commands expand via bare name:     `/<name> <args>`
+ *   - skills expand ONLY when prefixed with `skill:`:    `/skill:<name> <args>`
+ *   - extension-registered commands use bare name:       `/<name> <args>`
+ *
+ * Without the `skill:` prefix, pi sends the text verbatim to the LLM and
+ * never loads the skill body (agent-session.js:844 — `if (!text.startsWith("/skill:")) return text;`).
+ * So for skill-kind items we MUST inject `/skill:<name> <args>`.
+ *
+ * NOTE: pi also registers every skill as a runtime command named
+ * `skill:<name>`. When that runtime command reaches us via
+ * pi.getCommands(), findItemByName() will look up the bare user-typed name
+ * against `skill:<name>` — see resolveItemForRun() for the matching layer.
+ */
+export function buildInvocation(item: PaletteItem, args: string): string {
+  const trimmed = args.trim();
+  const prefix = item.kind === "skill" ? "/skill:" : "/";
+  return trimmed ? `${prefix}${item.name} ${trimmed}` : `${prefix}${item.name}`;
+}
+
+/**
+ * Resolve a user-typed name to a palette item for RUN, handling the
+ * `skill:<name>` ↔ bare-name ambiguity.
+ *
+ * pi registers every skill BOTH as a disk entry (bare name, kind=skill)
+ * AND as a runtime twin named `skill:<name>` (kind=command). We always
+ * prefer the disk skill entry (carries inline content for READ).
+ *
+ * Lookup order:
+ *   1. If query is `skill:<bare>` → return the matching disk skill if any
+ *   2. exact match on bare name (covers prompts, extension commands,
+ *      and disk skills when user typed the bare name)
+ *   3. as a last resort, match a runtime `skill:<bare>` twin back to its
+ *      disk skill
+ */
+export function resolveItemForRun(
+  items: PaletteItem[],
+  query: string,
+): PaletteItem | undefined {
+  const lower = normalizeName(query).toLowerCase();
+
+  // 1. user typed `skill:<name>` — prefer the disk skill over the runtime twin
+  if (lower.startsWith("skill:")) {
+    const bare = lower.slice("skill:".length);
+    const diskSkill = items.find(
+      (i) => i.kind === "skill" && i.name.toLowerCase() === bare,
+    );
+    if (diskSkill) return diskSkill;
+    // No disk skill — fall through to exact-name match (catches the runtime
+    // twin or any other item literally named `skill:<name>`).
+    const exact = items.find((i) => i.name.toLowerCase() === lower);
+    if (exact) return exact;
+  }
+
+  // 2. exact bare-name match (prompts, commands, disk skills)
+  const exactHit = items.find((i) => i.name.toLowerCase() === lower);
+  if (exactHit) return exactHit;
+
+  // 3. user typed bare name; only a `skill:<name>` runtime twin exists —
+  //    map it back to a disk skill of the same bare name if present.
+  const twinSkill = items.find(
+    (i) => i.kind === "skill" && `skill:${i.name.toLowerCase()}` === lower,
+  );
+  return twinSkill;
+}
+
+/**
  * Core dispatcher. Parses `args` (the raw string after `/cmd `) and routes
  * to the appropriate subaction. Pure: no I/O except through deps.
  *
@@ -113,7 +182,7 @@ export async function dispatch(
       deps.ui.notify(message, "warning");
       return { kind: "notified", message, level: "warning" };
     }
-    const item = findItemByName(items, normalizeName(rawName));
+    const item = resolveItemForRun(items, normalizeName(rawName));
     if (!item) {
       const message = `No command named /${normalizeName(rawName)}`;
       deps.ui.notify(message, "warning");
@@ -133,14 +202,14 @@ export async function dispatch(
       return { kind: "notified", message, level: "warning" };
     }
     const cleanName = normalizeName(rawName);
-    const item = findItemByName(items, cleanName);
+    const item = resolveItemForRun(items, cleanName);
     if (!item) {
       const message = `No command named /${cleanName}`;
       deps.ui.notify(message, "warning");
       return { kind: "notified", message, level: "warning" };
     }
     const rest = tokens.slice(2).join(" ");
-    const invocation = rest.trim() ? `/${item.name} ${rest.trim()}` : `/${item.name}`;
+    const invocation = buildInvocation(item, rest);
     deps.runner.run(invocation);
     return { kind: "ran", invocation };
   }
@@ -219,9 +288,7 @@ export async function dispatch(
   if (extraArgs === undefined) {
     return { kind: "cancelled" };
   }
-  const invocation = extraArgs.trim()
-    ? `/${picked.name} ${extraArgs.trim()}`
-    : `/${picked.name}`;
+  const invocation = buildInvocation(picked, extraArgs);
   deps.runner.run(invocation);
   return { kind: "ran", invocation };
 }
