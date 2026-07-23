@@ -24,6 +24,45 @@ export type DispatchOutcome =
   | { kind: "picked-read"; name: string }
   | { kind: "picker-skipped-no-ui"; message: string };
 
+/**
+ * Telemetry event emitted when a palette entry is READ.
+ *
+ * `source` is the on-disk filePath when the item was discovered from disk,
+ * or `"runtime"` for extension-registered commands / package-sourced skills
+ * with no on-disk twin. Emitted exactly once per successful READ, never on
+ * misses or usage warnings.
+ */
+export interface TelemetryEvent {
+  /** Discriminator. Future events: `cmd_run`, `cmd_list`, etc. */
+  event: "cmd_read";
+  /** Bare item name (no leading slash, no `skill:` prefix). */
+  name: string;
+  /** Item kind — matches PaletteKind. */
+  kind: "command" | "prompt" | "skill";
+  /** Where the definition was READ from: filePath on disk, or "runtime". */
+  source: string;
+  /** ISO 8601 timestamp (new Date().toISOString()). */
+  at: string;
+}
+
+/**
+ * Emit a `cmd_read` telemetry event if a sink is wired. No-op when undefined
+ * (backward compatible). Called once per successful READ resolution.
+ */
+function emitReadTelemetry(
+  sink: ((event: TelemetryEvent) => void) | undefined,
+  item: PaletteItem,
+): void {
+  if (!sink) return;
+  sink({
+    event: "cmd_read",
+    name: item.name,
+    kind: item.kind,
+    source: item.filePath || "runtime",
+    at: new Date().toISOString(),
+  });
+}
+
 /** Injectable UI surface — tests pass fakes, prod passes ctx.ui. */
 export interface DispatchUi {
   /** Show a notification. */
@@ -50,6 +89,8 @@ export interface DispatchDeps {
   ui: DispatchUi;
   /** RUNNER — re-injects slash command as user message. */
   runner: DispatchRunner;
+  /** Optional telemetry sink for cmd_read events. No-op when undefined. */
+  telemetry?: (event: TelemetryEvent) => void;
 }
 
 /** Search items by fuzzy query over name + description + content. */
@@ -188,6 +229,7 @@ export async function dispatch(
       deps.ui.notify(message, "warning");
       return { kind: "notified", message, level: "warning" };
     }
+    emitReadTelemetry(deps.telemetry, item);
     const message = formatRead(item);
     deps.ui.notify(message, "info");
     return { kind: "notified", message, level: "info" };
@@ -333,6 +375,7 @@ export async function dispatchForTool(
   params: ToolParams,
   items: PaletteItem[],
   runner?: DispatchRunner,
+  telemetry?: (event: TelemetryEvent) => void,
 ): Promise<ToolResult> {
   // Build the args string that dispatch() expects.
   let args: string;
@@ -375,6 +418,7 @@ export async function dispatchForTool(
     getItems: () => items,
     ui: noopUi,
     runner: runner ?? noopRunner,
+    telemetry,
   });
 
   // Extract text from the outcome.
