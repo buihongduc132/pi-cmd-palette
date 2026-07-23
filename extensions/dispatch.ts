@@ -13,7 +13,7 @@
  */
 
 import type { PaletteItem } from "./discovery.ts";
-import { formatHelp, formatList, formatRead, selectLabel } from "./format.ts";
+import { formatHelp, formatList, formatRead, type FormatListOptions, selectLabel } from "./format.ts";
 import { fuzzyRankMulti, type MultiField } from "./fuzzy.ts";
 
 /** Result of a dispatch call — what should happen next. */
@@ -91,6 +91,24 @@ export interface DispatchDeps {
   runner: DispatchRunner;
   /** Optional telemetry sink for cmd_read events. No-op when undefined. */
   telemetry?: (event: TelemetryEvent) => void;
+}
+
+/**
+ * Parse `page N` token from a token array. Returns the cleaned query tokens
+ * (with `page` and `N` stripped) and the page number (default 1).
+ */
+export function parsePageToken(tokens: string[]): { query: string; page: number } {
+  const idx = tokens.findIndex((t) => t.toLowerCase() === "page");
+  if (idx === -1 || idx === tokens.length - 1) {
+    return { query: tokens.join(" "), page: 1 };
+  }
+  const pageStr = tokens[idx + 1];
+  const pageNum = parseInt(pageStr, 10);
+  if (isNaN(pageNum) || pageNum < 1) {
+    return { query: tokens.join(" "), page: 1 };
+  }
+  const cleaned = [...tokens.slice(0, idx), ...tokens.slice(idx + 2)];
+  return { query: cleaned.join(" "), page: pageNum };
 }
 
 /** Search items by fuzzy query over name + description + content. */
@@ -256,16 +274,25 @@ export async function dispatch(
     return { kind: "ran", invocation };
   }
 
-  // /cmd list [query...]
+  // /cmd list [query...] [page N]
   if (subaction === "list") {
-    const query = tokens.slice(1).join(" ");
+    const listTokens = tokens.slice(1);
+    const { query, page } = parsePageToken(listTokens);
     const results = searchItems(items, query);
-    const message = `${formatList(results)}\n\n${results.length} match(es)${query ? ` for "${query}"` : ""}`;
+
+    // Default bare `/cmd list` (no query, no page) → showAll.
+    // With query OR explicit page → pageSize=50 paging.
+    const hasExplicitPage = listTokens.some((t) => t.toLowerCase() === "page");
+    const opts: FormatListOptions = (query || hasExplicitPage)
+      ? { page, pageSize: 50 }
+      : { showAll: true };
+
+    const message = `${formatList(results, opts)}\n\n${results.length} match(es)${query ? ` for "${query}"` : ""}`;
     deps.ui.notify(message, "info");
     return { kind: "notified", message, level: "info" };
   }
 
-  // /cmd <query>  (no subaction → fuzzy list)
+  // /cmd <query>  (no subaction → fuzzy list, paged at 50)
   if (trimmed) {
     const results = searchItems(items, trimmed);
     if (results.length === 0) {
@@ -273,7 +300,7 @@ export async function dispatch(
       deps.ui.notify(message, "info");
       return { kind: "notified", message, level: "info" };
     }
-    const message = `${formatList(results)}\n\n${results.length} match(es) for "${trimmed}"`;
+    const message = `${formatList(results, { page: 1, pageSize: 50 })}\n\n${results.length} match(es) for "${trimmed}"`;
     deps.ui.notify(message, "info");
     return { kind: "notified", message, level: "info" };
   }

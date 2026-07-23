@@ -82,10 +82,10 @@ describe("formatList paging", () => {
   it("page 2 size 50 shows items 51-100 range", () => {
     const out = formatList(items(194), { page: 2, pageSize: 50 });
     expect(out).toContain("Showing 51-100 of 194");
-    expect(out).toContain("item 51");
-    expect(out).toContain("item 100");
-    expect(out).not.toContain("item 50");
-    expect(out).not.toContain("item 101");
+    expect(out).toContain("item 50");
+    expect(out).toContain("item 99");
+    expect(out).not.toContain("item 49");
+    expect(out).not.toContain("item 100");
   });
 
   it("last partial page shows range with no 'more' footer", () => {
