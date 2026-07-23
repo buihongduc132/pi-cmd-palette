@@ -37,6 +37,36 @@ Then `pi install` and restart pi. The `/cmd` command becomes available.
 /cmd run 20-ospx-new my-change   # invoke /20-ospx-new with an argument
 ```
 
+## Tool — `cmd_palette`
+
+In addition to the `/cmd` slash command (TUI-only), pi-cmd-palette registers
+a **tool** named `cmd_palette` that sub-agents and LLM tool calls can invoke
+directly. This is the programmatic entry point — no TUI picker, returns text.
+
+### Parameters
+
+| Parameter   | Type                                          | Required | Description                          |
+|-------------|-----------------------------------------------|----------|--------------------------------------|
+| `subaction` | `"list" \| "read" \| "run" \| "help"`         | yes      | Action to perform                    |
+| `query`     | `string`                                      | no       | Fuzzy search query (for `list`)      |
+| `name`      | `string`                                      | no       | Command/skill name (for `read`/`run`)|
+| `args`      | `string`                                      | no       | Arguments to pass (for `run`)        |
+
+### Examples
+
+```
+cmd_palette({ subaction: "list", query: "deploy" })   → text list of matching commands
+cmd_palette({ subaction: "read", name: "50-opsx-archive" }) → full detail text
+cmd_palette({ subaction: "run", name: "deploy", args: "prod" }) → invokes /deploy prod
+cmd_palette({ subaction: "help" })                     → usage text
+```
+
+### Design
+
+The tool reuses the same pure dispatch logic as `/cmd` via `dispatchForTool()`
+in `dispatch.ts`. No code duplication — the tool is a thin wrapper that maps
+structured parameters to the args string format and captures the text result.
+
 ## How RUN preserves functionality
 
 `/cmd run <name> <args>` re-injects `/<name> <args>` as a user message —
@@ -95,8 +125,8 @@ extensions/
 ├── fuzzy.ts          # pure fuzzy-search helpers
 ├── discovery.ts      # pure disk + runtime discovery
 ├── format.ts         # pure output formatting
-├── dispatch.ts       # pure subaction dispatcher (the feature logic)
-├── index.ts          # pi extension entry point — thin wrapper around dispatch
+├── dispatch.ts       # pure subaction dispatcher (the feature logic) + dispatchForTool (tool path)
+├── index.ts          # pi extension entry point — thin wrapper: /cmd command + cmd_palette tool
 └── *.test.ts         # co-located vitest tests (incl. dispatch.test.ts)
 skills/pi-cmd-palette/SKILL.md   # pi skill descriptor
 scripts/smoke-test.ts            # load + sanity checks

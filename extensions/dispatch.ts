@@ -292,3 +292,104 @@ export async function dispatch(
   deps.runner.run(invocation);
   return { kind: "ran", invocation };
 }
+
+// ===========================================================================
+// Tool invocation path — structured params → text result (no TUI)
+// ===========================================================================
+
+/** Result from dispatchForTool — text content + optional invocation for RUN. */
+export interface ToolResult {
+  /** Text content to return to the caller (LLM / tool result). */
+  text: string;
+  /** For RUN: the re-injected invocation string (e.g. `/deploy prod`). */
+  invocation?: string;
+}
+
+/** Structured parameters for the tool invocation path. */
+export interface ToolParams {
+  subaction: "list" | "read" | "run" | "help";
+  /** Fuzzy query for "list" subaction. */
+  query?: string;
+  /** Command/skill name for "read" and "run" subactions. */
+  name?: string;
+  /** Extra arguments for "run" subaction. */
+  args?: string;
+}
+
+/**
+ * Pure dispatcher for the tool invocation path.
+ *
+ * Accepts structured parameters (subaction + query/name/args) and returns
+ * a text result — no TUI picker, no side effects beyond the optional runner.
+ * Reuses the existing dispatch() function internally by building the
+ * appropriate args string and providing a no-op UI.
+ *
+ * This is the bridge between the tool registration (index.ts) and the
+ * core dispatch logic (dispatch()). The tool handler in index.ts maps
+ * pi.n() parameters to ToolParams, calls this function, and returns
+ * the text as tool content.
+ */
+export async function dispatchForTool(
+  params: ToolParams,
+  items: PaletteItem[],
+  runner?: DispatchRunner,
+): Promise<ToolResult> {
+  // Build the args string that dispatch() expects.
+  let args: string;
+  switch (params.subaction) {
+    case "help":
+      args = "help";
+      break;
+    case "list":
+      args = params.query ? `list ${params.query}` : "list";
+      break;
+    case "read":
+      args = params.name ? `read ${params.name}` : "read";
+      break;
+    case "run":
+      args = params.name
+        ? params.args
+          ? `run ${params.name} ${params.args}`
+          : `run ${params.name}`
+        : "run";
+      break;
+  }
+
+  // No-op UI — dispatch() calls notify() which we capture, but never
+  // calls input()/select() because hasUI=false.
+  let capturedMessage = "";
+  const noopUi: DispatchUi = {
+    notify: (message: string) => {
+      capturedMessage = message;
+    },
+    input: async () => undefined,
+    select: async () => undefined,
+  };
+
+  const noopRunner: DispatchRunner = {
+    run: () => {},
+  };
+
+  const outcome = await dispatch(args, {
+    hasUI: false,
+    getItems: () => items,
+    ui: noopUi,
+    runner: runner ?? noopRunner,
+  });
+
+  // Extract text from the outcome.
+  switch (outcome.kind) {
+    case "notified":
+    case "picker-skipped-no-ui":
+      return { text: outcome.message };
+    case "ran":
+      return {
+        text: `Invoked: ${outcome.invocation}`,
+        invocation: outcome.invocation,
+      };
+    case "cancelled":
+      return { text: "Cancelled." };
+    case "picked-read":
+      return { text: `Read: ${outcome.name}` };
+  }
+}

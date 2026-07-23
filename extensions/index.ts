@@ -18,9 +18,10 @@
  *     its normal prompt/skill/command pipeline. No reimplementation.
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { Type } from "typebox";
 import {
   discoverPrompts,
   discoverSkills,
@@ -28,7 +29,7 @@ import {
   sortByName,
   type PaletteItem,
 } from "./discovery.ts";
-import { dispatch, type DispatchDeps, type DispatchUi, type DispatchRunner } from "./dispatch.ts";
+import { dispatch, dispatchForTool, type DispatchDeps, type DispatchUi, type DispatchRunner } from "./dispatch.ts";
 
 /** Resolve the agent config dir (where prompts/ and skills/ live). */
 function agentDir(): string {
@@ -127,6 +128,59 @@ export default function (pi: ExtensionAPI) {
         runner: makeRunner((invocation) => pi.sendUserMessage(invocation)),
       };
       await dispatch(args, deps);
+    },
+  });
+
+  // Tool registration — exposes cmd_palette as a callable tool for sub-agents
+  // and LLM tool calls. Reuses the same dispatch logic as /cmd but returns
+  // text results instead of TUI interactions.
+  pi.registerTool({
+    name: "cmd_palette",
+    label: "Command Palette",
+    description:
+      "List, read, or run slash commands, prompts, and skills. Use 'list' to search, 'read' to inspect a command, 'run' to invoke one, 'help' for usage.",
+    parameters: Type.Object({
+      subaction: Type.Union([
+        Type.Literal("list"),
+        Type.Literal("read"),
+        Type.Literal("run"),
+        Type.Literal("help"),
+      ], { description: "Action to perform" }),
+      query: Type.Optional(Type.String({ description: "Fuzzy search query (for 'list')" })),
+      name: Type.Optional(Type.String({ description: "Command/skill name (for 'read' and 'run')" })),
+      args: Type.Optional(Type.String({ description: "Arguments to pass (for 'run')" })),
+    }),
+    async execute(
+      _toolCallId: string,
+      params: { subaction: "list" | "read" | "run" | "help"; query?: string; name?: string; args?: string },
+      _signal: AbortSignal | undefined,
+      _onUpdate: unknown,
+      ctx: ExtensionContext,
+    ) {
+      try {
+        const items = gatherItems(pi, ctx);
+        const runner = makeRunner((invocation) => pi.sendUserMessage(invocation));
+        const result = await dispatchForTool(
+          {
+            subaction: params.subaction,
+            query: params.query,
+            name: params.name,
+            args: params.args,
+          },
+          items,
+          runner,
+        );
+        return {
+          content: [{ type: "text" as const, text: result.text }],
+          details: { invocation: result.invocation ?? null },
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text" as const, text: `cmd_palette error: ${message}` }],
+          details: { invocation: null },
+        };
+      }
     },
   });
 }

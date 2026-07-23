@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   dispatch,
+  dispatchForTool,
   findItemByName,
   normalizeName,
   searchItems,
@@ -9,6 +10,7 @@ import {
   type DispatchDeps,
   type DispatchUi,
   type DispatchRunner,
+  type ToolResult,
 } from "./dispatch.ts";
 import type { PaletteItem } from "./discovery.ts";
 
@@ -541,5 +543,131 @@ describe("dispatch — no UI fallback", () => {
     expect(outcome.kind).toBe("picker-skipped-no-ui");
     const notify = ui.calls.find((c) => c.method === "notify");
     expect(String(notify?.args[0])).toContain("/deploy");
+  });
+});
+
+// ===========================================================================
+// dispatchForTool — tool invocation path (no UI, returns text)
+// ===========================================================================
+
+describe("dispatchForTool", () => {
+  it("help returns help text", async () => {
+    const result: ToolResult = await dispatchForTool(
+      { subaction: "help" },
+      sampleItems(),
+    );
+    expect(result.text).toContain("pi-cmd-palette");
+    expect(result.text).toContain("Usage:");
+    expect(result.invocation).toBeUndefined();
+  });
+
+  it("list with no query returns all items", async () => {
+    const result = await dispatchForTool(
+      { subaction: "list" },
+      sampleItems(),
+    );
+    expect(result.text).toContain("/deploy");
+    expect(result.text).toContain("/skill:audit-skill");
+    expect(result.text).toContain("/enforcer-status");
+    expect(result.text).toContain("3 match(es)");
+    expect(result.invocation).toBeUndefined();
+  });
+
+  it("list with query returns filtered items", async () => {
+    const result = await dispatchForTool(
+      { subaction: "list", query: "deploy" },
+      sampleItems(),
+    );
+    expect(result.text).toContain("/deploy");
+    expect(result.text).toContain("1 match(es)");
+    expect(result.invocation).toBeUndefined();
+  });
+
+  it("read returns full detail for a named item", async () => {
+    const result = await dispatchForTool(
+      { subaction: "read", name: "deploy" },
+      sampleItems(),
+    );
+    expect(result.text).toContain("/deploy");
+    expect(result.text).toContain("deploy body");
+    expect(result.text).toContain("Kind: prompt");
+    expect(result.invocation).toBeUndefined();
+  });
+
+  it("read with skill name returns skill detail", async () => {
+    const result = await dispatchForTool(
+      { subaction: "read", name: "audit-skill" },
+      sampleItems(),
+    );
+    expect(result.text).toContain("/skill:audit-skill");
+    expect(result.text).toContain("Kind: skill");
+  });
+
+  it("read with unknown name returns error text", async () => {
+    const result = await dispatchForTool(
+      { subaction: "read", name: "nonexistent" },
+      sampleItems(),
+    );
+    expect(result.text).toContain("No command named nonexistent");
+    expect(result.invocation).toBeUndefined();
+  });
+
+  it("read without name returns usage error", async () => {
+    const result = await dispatchForTool(
+      { subaction: "read" },
+      sampleItems(),
+    );
+    expect(result.text).toContain("Usage");
+    expect(result.invocation).toBeUndefined();
+  });
+
+  it("run re-injects the command and returns confirmation", async () => {
+    const runner = makeFakeRunner();
+    const result = await dispatchForTool(
+      { subaction: "run", name: "deploy", args: "prod" },
+      sampleItems(),
+      runner,
+    );
+    expect(result.invocation).toBe("/deploy prod");
+    expect(result.text).toContain("/deploy prod");
+    expect(runner.invocations).toEqual(["/deploy prod"]);
+  });
+
+  it("run skill re-injects with /skill: prefix", async () => {
+    const runner = makeFakeRunner();
+    const result = await dispatchForTool(
+      { subaction: "run", name: "audit-skill" },
+      sampleItems(),
+      runner,
+    );
+    expect(result.invocation).toBe("/skill:audit-skill");
+    expect(runner.invocations).toEqual(["/skill:audit-skill"]);
+  });
+
+  it("run without name returns usage error", async () => {
+    const result = await dispatchForTool(
+      { subaction: "run" },
+      sampleItems(),
+    );
+    expect(result.text).toContain("Usage");
+    expect(result.invocation).toBeUndefined();
+  });
+
+  it("run with unknown name returns error", async () => {
+    const result = await dispatchForTool(
+      { subaction: "run", name: "ghost" },
+      sampleItems(),
+    );
+    expect(result.text).toContain("No command named ghost");
+    expect(result.invocation).toBeUndefined();
+  });
+
+  it("default subaction (no explicit) fuzzy-searches by query", async () => {
+    const result = await dispatchForTool(
+      { subaction: "list", query: "audit" },
+      sampleItems(),
+    );
+    expect(result.text).toContain("/skill:audit-skill");
+    expect(result.text).toContain("1 match(es)");
   });
 });
