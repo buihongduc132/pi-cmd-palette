@@ -23,25 +23,85 @@ export function selectLabel(item: PaletteItem): string {
   return `${invocationPrefix(item)}${item.name}  [${tag}]${desc}`;
 }
 
+/** Options for paged / showAll list rendering. */
+export interface FormatListOptions {
+  /** Page number, 1-indexed. Default 1. Ignored if showAll=true. */
+  page?: number;
+  /** Items per page. Default 50. Ignored if showAll=true. */
+  pageSize?: number;
+  /** Show all items (no paging). Default false. */
+  showAll?: boolean;
+  /** Footer appears when total > this even in showAll mode. Default 200. */
+  footerThreshold?: number;
+}
+
+/** Render one item as a numbered line (page-local numbering). */
+function formatLine(item: PaletteItem, localIndex: number): string {
+  const tag = item.kind === "prompt" ? "cmd" : item.kind;
+  const desc = item.description ? ` — ${item.description}` : "";
+  const num = String(localIndex + 1).padStart(3, " ");
+  return `${num}. [${tag}] ${invocationPrefix(item)}${item.name}${desc}`;
+}
+
 /**
  * Compact LIST view — one line per item.
- * Caps output length to keep the message digestible in the TUI.
  *
- * Each line shows the canonical invocation form (`/<name>` or `/skill:<name>`)
- * so users can copy-paste the line directly into pi and have it expand.
+ * Two modes:
+ *   1. Legacy: `formatList(items, maxItems:number)` — caps output at maxItems
+ *      with old "... (X more, refine query)" footer. Backward-compat.
+ *   2. New: `formatList(items, FormatListOptions)` — paged or showAll.
+ *      - showAll=true: render every item. Footer "Showing all N" if N > footerThreshold (default 200).
+ *      - paged: slice [start, end), footer "Showing X-Y of Z (W more — page N+1 or refine)"
+ *        or just "Showing X-Y of Z" on last page. No footer when total ≤ pageSize.
  */
-export function formatList(items: PaletteItem[], maxItems = 200): string {
+export function formatList(
+  items: PaletteItem[],
+  opts?: FormatListOptions | number,
+): string {
   if (items.length === 0) return "No commands found.";
-  const shown = items.slice(0, maxItems);
-  const lines = shown.map((item, i) => {
-    const tag = item.kind === "prompt" ? "cmd" : item.kind;
-    const desc = item.description ? ` — ${item.description}` : "";
-    const num = String(i + 1).padStart(3, " ");
-    return `${num}. [${tag}] ${invocationPrefix(item)}${item.name}${desc}`;
-  });
-  const truncated =
-    items.length > maxItems ? `\n... (${items.length - maxItems} more, refine query)` : "";
-  return lines.join("\n") + truncated;
+
+  // Legacy path: numeric second arg = maxItems cap with old footer text.
+  if (typeof opts === "number") {
+    const maxItems = opts;
+    const shown = items.slice(0, maxItems);
+    const lines = shown.map((item, i) => formatLine(item, i));
+    const truncated =
+      items.length > maxItems ? `\n... (${items.length - maxItems} more, refine query)` : "";
+    return lines.join("\n") + truncated;
+  }
+
+  const page = opts?.page ?? 1;
+  const pageSize = opts?.pageSize ?? 50;
+  const showAll = opts?.showAll ?? false;
+  const footerThreshold = opts?.footerThreshold ?? 200;
+
+  // showAll: render every item, optional count footer above threshold.
+  if (showAll) {
+    const lines = items.map((item, i) => formatLine(item, i));
+    const footer =
+      items.length > footerThreshold ? `\nShowing all ${items.length}` : "";
+    return lines.join("\n") + footer;
+  }
+
+  // Paged.
+  const total = items.length;
+  const lastPage = Math.max(1, Math.ceil(total / pageSize));
+  const clampedPage = Math.min(Math.max(1, page), lastPage);
+  const start = (clampedPage - 1) * pageSize;
+  const end = Math.min(start + pageSize, total);
+  const slice = items.slice(start, end);
+  const lines = slice.map((item, i) => formatLine(item, i));
+
+  let footer = "";
+  if (total > pageSize) {
+    const more = total - end;
+    if (more > 0) {
+      footer = `\nShowing ${start + 1}-${end} of ${total} (${more} more — page ${clampedPage + 1} or refine)`;
+    } else {
+      footer = `\nShowing ${start + 1}-${end} of ${total}`;
+    }
+  }
+  return lines.join("\n") + footer;
 }
 
 /**

@@ -29,7 +29,7 @@ import {
   sortByName,
   type PaletteItem,
 } from "./discovery.ts";
-import { dispatch, dispatchForTool, type DispatchDeps, type DispatchUi, type DispatchRunner } from "./dispatch.ts";
+import { dispatch, dispatchForTool, type DispatchDeps, type DispatchUi, type DispatchRunner, type TelemetryEvent } from "./dispatch.ts";
 
 /** Resolve the agent config dir (where prompts/ and skills/ live). */
 function agentDir(): string {
@@ -108,6 +108,21 @@ function makeRunner(sendUserMessage: (content: string) => void): DispatchRunner 
   };
 }
 
+/**
+ * Default telemetry sink: best-effort JSON line to stderr.
+ *
+ * stderr (not stdout) so telemetry never pollutes tool text results or
+ * captured stdout. Wrapped in try/catch — a telemetry failure must NEVER
+ * break a READ (the user still gets the rendered command detail).
+ */
+function defaultTelemetrySink(event: TelemetryEvent): void {
+  try {
+    console.error(JSON.stringify(event));
+  } catch {
+    // Swallow — telemetry is best-effort, never fatal.
+  }
+}
+
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("cmd", {
     description:
@@ -126,6 +141,7 @@ export default function (pi: ExtensionAPI) {
         getItems: () => gatherItems(pi, ctx),
         ui: makeUi(ctx.ui),
         runner: makeRunner((invocation) => pi.sendUserMessage(invocation)),
+        telemetry: defaultTelemetrySink,
       };
       await dispatch(args, deps);
     },
@@ -169,6 +185,7 @@ export default function (pi: ExtensionAPI) {
           },
           items,
           runner,
+          defaultTelemetrySink,
         );
         return {
           content: [{ type: "text" as const, text: result.text }],
