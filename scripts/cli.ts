@@ -58,7 +58,7 @@ function gatherItems(cwd: string): PaletteItem[] {
     const projectPrompts = discoverPrompts(join(cwd, ".pi", "prompts"));
     const projectSkills = discoverSkills(join(cwd, ".pi", "skills"));
     return sortByName([...fromDisk, ...projectPrompts, ...projectSkills]);
-  });
+  }, "cli");
 }
 
 /** Resolve an item by name (case-insensitive, leading-slash tolerant). */
@@ -89,7 +89,7 @@ function main() {
       "  CMD_PALETTE_CACHE_TTL  — cache TTL in seconds (default 300, 0=disabled)",
       "  PI_CODING_AGENT_DIR    — agent config root (default ~/.pi/agent)",
     ].join("\n"));
-    process.exit(0);
+    return;
   }
 
   if (subaction === "list") {
@@ -107,7 +107,7 @@ function main() {
         console.log(`[${item.kind}] ${prefix}${item.name}${desc}`);
       }
     }
-    process.exit(0);
+    return;
   }
 
   if (subaction === "read") {
@@ -130,7 +130,7 @@ function main() {
     } else {
       console.log(formatRead(item));
     }
-    process.exit(0);
+    return;
   }
 
   console.error(`Unknown subaction: ${subaction}`);

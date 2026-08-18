@@ -88,7 +88,7 @@ function gatherItems(
       runtimeNames,
     );
     return sortByName(merged);
-  });
+  }, "pi");
 }
 
 /** Build a DispatchUi from a pi ExtensionCommandContext-like ui object. */

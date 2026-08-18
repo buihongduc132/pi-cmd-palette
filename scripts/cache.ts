@@ -75,7 +75,24 @@ export function computeFingerprint(
   return JSON.stringify(fp);
 }
 
-/** Hash a fingerprint into a short cache filename. */
+/**
+ * Compute the cache IDENTITY key — what makes two lookups "the same query".
+ *
+ * Deliberately excludes mtimes: the filename must be stable across content
+ * changes, otherwise every edit mints a brand-new cache file and the old ones
+ * are never reclaimed (unbounded ~/.cache growth).
+ *
+ * `variant` separates consumers that produce DIFFERENT item sets from the same
+ * directories — the pi extension merges `pi.getCommands()` runtime commands in,
+ * the headless CLI does not. Without this, whichever ran last would overwrite
+ * the other's entry and pi `/cmd` could silently serve a payload missing every
+ * extension-registered command.
+ */
+function cacheKey(agentDir: string, cwd: string, variant: string): string {
+  return JSON.stringify({ agentDir, cwd, variant });
+}
+
+/** Hash a string into a short cache filename component. */
 function hashFingerprint(fp: string): string {
   return createHash("sha256").update(fp).digest("hex").slice(0, 16);
 }
@@ -93,9 +110,9 @@ function cacheDir(): string {
   return dir;
 }
 
-/** Resolve cache file path for a given fingerprint. */
-function cacheFilePath(fingerprint: string): string {
-  const hash = hashFingerprint(fingerprint);
+/** Resolve cache file path for a given identity key. */
+function cacheFilePath(key: string): string {
+  const hash = hashFingerprint(key);
   return join(cacheDir(), `index-${hash}.json`);
 }
 
@@ -125,6 +142,9 @@ function writeCacheEntry(filePath: string, entry: CacheEntry): void {
  * @param cwd — current working directory (project root)
  * @param dirs — directories to fingerprint (prompts/skills paths)
  * @param rescanFn — callback to rescan items (gatherItems)
+ * @param variant — consumer identity; separates item-set shapes that come from
+ *   the same dirs (e.g. "pi" merges runtime commands, "cli" does not). Two
+ *   consumers with different variants never share a cache file.
  * @returns cached or fresh items
  */
 export function getCachedOrRescan(
@@ -132,10 +152,12 @@ export function getCachedOrRescan(
   cwd: string,
   dirs: string[],
   rescanFn: () => PaletteItem[],
+  variant: string = "cli",
 ): PaletteItem[] {
   const ttl = getCacheTTL();
   const fingerprint = computeFingerprint(agentDir, cwd, dirs);
-  const filePath = cacheFilePath(fingerprint);
+  // Filename is keyed on IDENTITY (stable), freshness lives in the entry body.
+  const filePath = cacheFilePath(cacheKey(agentDir, cwd, variant));
 
   // Cache disabled (TTL=0) — always rescan.
   if (ttl === 0) {
