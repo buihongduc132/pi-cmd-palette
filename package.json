@@ -17,8 +17,12 @@
     "command-palette",
     "fuzzy-search"
   ],
+  "bin": {
+    "cmd-palette": "./scripts/cli.ts"
+  },
   "files": [
     "extensions/**/*.ts",
+    "scripts/**/*.ts",
     "skills/**/*",
     "README.md",
     "CHANGELOG.md",

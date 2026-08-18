@@ -30,6 +30,7 @@ import {
   type PaletteItem,
 } from "./discovery.ts";
 import { dispatch, dispatchForTool, type DispatchDeps, type DispatchUi, type DispatchRunner, type TelemetryEvent } from "./dispatch.ts";
+import { getCachedOrRescan } from "../scripts/cache.ts";
 
 /** Resolve the agent config dir (where prompts/ and skills/ live). */
 function agentDir(): string {
@@ -40,52 +41,54 @@ function agentDir(): string {
   return join(homedir(), ".pi", "agent");
 }
 
-/** Discover every palette entry available in this session. */
+/** Discover every palette entry available in this session (with cache). */
 function gatherItems(
   pi: ExtensionAPI,
   ctx: { cwd?: string },
 ): PaletteItem[] {
   const dir = agentDir();
+  const cwd = ctx?.cwd || process.cwd();
 
-  // 1. Disk-discovered prompts + skills.
-  const fromDisk = [
-    ...discoverPrompts(join(dir, "prompts")),
-    ...discoverSkills(join(dir, "skills")),
+  // Directories to fingerprint for cache
+  const dirs = [
+    join(dir, "prompts"),
+    join(dir, "skills"),
+    join(cwd, ".pi", "prompts"),
+    join(cwd, ".pi", "skills"),
   ];
 
-  // 2. Project-local prompts (cwd/.pi/prompts) — mirrors pi's own loader.
-  //    Defensively default to process.cwd() if ctx.cwd is missing.
-  const cwd = ctx?.cwd || process.cwd();
-  const projectPrompts = discoverPrompts(join(cwd, ".pi", "prompts"));
-  const projectSkills = discoverSkills(join(cwd, ".pi", "skills"));
+  return getCachedOrRescan(dir, cwd, dirs, () => {
+    // Rescan callback — disk discovery + runtime merge
+    const fromDisk = [
+      ...discoverPrompts(join(dir, "prompts")),
+      ...discoverSkills(join(dir, "skills")),
+    ];
 
-  // 3. Merge with runtime-registered commands (extension commands).
-  //    pi.getCommands() returns every slash command including builtin ones;
-  //    we keep ones that didn't already come from disk.
-  //    The `source` field ("extension" | "prompt" | "skill") is carried
-  //    through so mergeWithRuntimeCommands can tag source=skill commands
-  //    with kind=skill — required for /cmd run <bare-skill> to work on
-  //    package-sourced skills that don't exist on disk.
-  let runtimeNames: {
-    name: string;
-    description?: string;
-    source?: "extension" | "prompt" | "skill";
-  }[] = [];
-  try {
-    runtimeNames = pi.getCommands().map((c) => ({
-      name: c.name,
-      description: c.description,
-      source: c.source,
-    }));
-  } catch {
-    runtimeNames = [];
-  }
+    const projectPrompts = discoverPrompts(join(cwd, ".pi", "prompts"));
+    const projectSkills = discoverSkills(join(cwd, ".pi", "skills"));
 
-  const merged = mergeWithRuntimeCommands(
-    [...fromDisk, ...projectPrompts, ...projectSkills],
-    runtimeNames,
-  );
-  return sortByName(merged);
+    // Merge with runtime-registered commands (extension commands).
+    let runtimeNames: {
+      name: string;
+      description?: string;
+      source?: "extension" | "prompt" | "skill";
+    }[] = [];
+    try {
+      runtimeNames = pi.getCommands().map((c) => ({
+        name: c.name,
+        description: c.description,
+        source: c.source,
+      }));
+    } catch {
+      runtimeNames = [];
+    }
+
+    const merged = mergeWithRuntimeCommands(
+      [...fromDisk, ...projectPrompts, ...projectSkills],
+      runtimeNames,
+    );
+    return sortByName(merged);
+  });
 }
 
 /** Build a DispatchUi from a pi ExtensionCommandContext-like ui object. */
