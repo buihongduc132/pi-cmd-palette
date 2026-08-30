@@ -1,0 +1,6 @@
+=== final probes @ f5b9fa5 ===
+ok (332 commands) config: /home/bhd/.pi/agent/unify-cmd.json
+5
+^ cross-agent 10-ospx-explore entries (A2)
+ping-missing-exit=2 (A6)
+f5b9fa5f2faf28b2c8ea63481f5684caa5437ac8	refs/heads/main
