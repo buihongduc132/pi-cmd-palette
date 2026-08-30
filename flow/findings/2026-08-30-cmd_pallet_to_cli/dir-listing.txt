@@ -1,0 +1,31 @@
+2026-08-30-cmd_pallet_to_cli/
+├── solutions/                             Solutions: 0 (solve-blockers not run)
+├── 2026-08-30-locked-decisions.yaml       Decided: 5 (LD1-LD5)
+├── 2026-08-30-open-threads.yaml           Remain: 2 open (3 total; 1 deferred)
+├── 2026-08-30-turn1-chain-prompt.md       Threads: 3; decided: 5; remain: 3
+├── 2026-08-30-turn2-explore-synthesis.md  Threads: 3; decided: 5; remain: 3
+├── references.md
+└── README.md
+```
+
+## Section (a) — BLOCKERS (must-decide-before-implementation)
+
+No blockers — all open threads deferrable with reduced coverage.
+
+- OT1 (SearXNG outage) = next-step, external grounding optional; internal grounding complete.
+- OT2 (naming collision) = documentation task inside implementation, decision already locked (LD1).
+- OT3 (repo provisioning) = implementation step itself, not a decision.
+
+## Section (b) — DEFERRAL FEASIBILITY
+
+─ Global deferral verdict ─
+If ALL threads deferred, implementation feasible? YES
+
+Ships now:
+- `cmd-pallet` CLI with list [query] / read / run / search / get / ping / sync / help, --json everywhere
+- Same catalog (pi-unify-cmd), same fuzzy ranking, same RUN output shape as grok adapter
+- Tests + local run (LD2)
+
+Deferred (reduced):
+- OT1: no external >100-stars cross-check (low risk — port of own established patterns)
+- OT2: README distinction note can land in same PR; if deferred, user confusion risk only
