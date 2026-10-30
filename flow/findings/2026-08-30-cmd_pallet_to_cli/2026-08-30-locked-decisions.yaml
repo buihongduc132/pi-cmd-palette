@@ -1,0 +1,35 @@
+- id: LD1
+  turn: turn1
+  parts: ["chain-prompt"]
+  user_quote: |
+    "turns all of the capability that cmd-pallet is having into cli as well , make it as cmd-pallet"
+  decision: CLI artifact named `cmd-pallet` carrying ALL cmd-pallet capabilities (list/read/run/help + cmd_list/cmd_search/cmd_get equivalents + sync).
+  status: locked
+- id: LD2
+  turn: turn1
+  parts: ["chain-prompt"]
+  user_quote: |
+    "ensure cli is tested and be able to run locally"
+  decision: CLI MUST have tests AND be runnable locally — both are completion criteria.
+  status: locked
+- id: LD3
+  turn: turn1
+  parts: ["chain-prompt"]
+  user_quote: |
+    "must update mqa ticket afterward"
+  decision: MQA tickets created by /mqa-to-tickets MUST be updated after implementation completes.
+  status: locked
+- id: LD4
+  turn: turn1
+  parts: ["chain-prompt"]
+  user_quote: |
+    "/mqa-to-tickets (but do not assign)"
+  decision: MQA tickets created UNASSIGNED.
+  status: locked
+- id: LD5
+  turn: turn1
+  parts: ["chain-prompt"]
+  user_quote: |
+    "/process-watch to delegate cli-agents (use agy) to implement all of these"
+  decision: Implementation delegated to cli-agents via process-watch using agy.
+  status: locked

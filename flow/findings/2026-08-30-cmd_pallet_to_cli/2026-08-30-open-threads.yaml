@@ -1,0 +1,27 @@
+status: ongoing
+threads:
+  - id: OT1
+    topic: SearXNG outage — external grounding skipped
+    raised_in: turn2
+    status: deferred
+    resolution: exploration grounded in internal established code instead (inherit-dominated one-hop port)
+    severity: 2
+    note: |
+      curl to http://100.116.49.80:24120 returned 000. One mise retry failed (task not found).
+      External ">100 stars" check not performed. Risk low: design is a port of our own established patterns.
+  - id: OT2
+    topic: naming collision cmd-palette vs cmd-pallet
+    raised_in: turn2
+    status: open
+    severity: 2
+    note: |
+      Existing bin `cmd-palette` (pi-cmd-palette, pi prompts+skills catalog) vs new bin `cmd-pallet`
+      (cli-agent-cmd catalog via pi-unify-cmd). Intentional per LD1. CLI README must document the distinction.
+  - id: OT3
+    topic: repo provisioning for buihongduc132/cmd-pallet
+    raised_in: turn2
+    status: open
+    severity: 3
+    note: |
+      New GH repo must be created + pushed during implementation (HARD rule: packages live in own repo).
+      Implementation step, not a decision.
